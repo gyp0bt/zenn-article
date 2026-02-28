@@ -6,7 +6,7 @@ topics: ["cae", "fem", "梁梁接触", "接触の定式化", "一貫接線化"]
 published: false
 ---
 
-> 連載リンク: [梁梁接触#1: なぜ梁接触は壊れやすいのか？](https://zenn.dev/articles/beam-beam-contact-1-why-fragile)
+> 連載リンク: [梁梁接触#1: なぜ梁接触は壊れやすいのか？](https://zenn.dev/gyp0bt/articles/beam-beam-contact-1-why-fragile)
 
 この記事では、梁同士の接触がなぜ収束不安定になりやすいのかを、**Point-to-Point（PtP）接触の構造的な限界**から整理します。結論としては、平行近傍では「接触を1点に潰す」仮定が破綻しやすく、Line-to-line への移行が自然です。
 
