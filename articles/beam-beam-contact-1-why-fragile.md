@@ -128,4 +128,4 @@ $$
 - #4: 一貫接線化とモノリシック解法
 :::
 
-> 次の記事: [梁梁接触#2: PtP接触の構造的問題](https://zenn.dev/articles/beam-beam-contact-2-ptp-structural-issues)
+> 次の記事: [梁梁接触#2: PtP接触の構造的問題](https://zenn.dev/gyp0bt/articles/beam-beam-contact-2-ptp-structural-issues)
