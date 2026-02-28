@@ -6,7 +6,7 @@ topics: ["cae", "fem", "梁梁接触", "接触の定式化", "一貫接線化"]
 published: false
 ---
 
-> 連載リンク: [梁梁接触#2: PtP接触の構造的問題](https://zenn.dev/articles/beam-beam-contact-2-ptp-structural-issues)
+> 連載リンク: [梁梁接触#2: PtP接触の構造的問題](https://zenn.dev/gyp0bt/articles/beam-beam-contact-2-ptp-structural-issues)
 
 ## 梁梁接触は「実装テク」だけでは安定しない
 
