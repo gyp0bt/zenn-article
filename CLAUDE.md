@@ -14,8 +14,12 @@ zenn-article/
 ├── README.md          # プロジェクト概要
 ├── articles/          # Zenn記事（.md）
 ├── books/             # Zenn本（.md）
+├── simulations/       # シミュレーションコード（Python）
 └── docs/
     ├── roadmap.md     # 全体ロードマップ
+    ├── specs/         # 詳細仕様書
+    │   ├── tennis-ball-picking-spec.md
+    │   └── inou-tadataka-spec.md
     └── status/
         ├── status-index.md  # ブリーフインデックス
         └── status-NNN.md    # 個別実装ブリーフ
