@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 
 from simulations.tennis_ball_picking.styles import (
-    StyleParams,
     StyleType,
     estimate_total_time,
     get_all_styles,

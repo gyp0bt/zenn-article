@@ -15,7 +15,6 @@ from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
 from .court import CourtGeometry
-from .distribution import BallDistribution
 
 
 def draw_court(ax: Axes, court: CourtGeometry) -> None:
@@ -25,7 +24,6 @@ def draw_court(ax: Axes, court: CourtGeometry) -> None:
         ax: matplotlib Axes
         court: コートジオメトリ
     """
-    lines = court.court_lines()
     hl = court.half_length
     hw_d = court.doubles_width / 2
     hw_s = court.singles_width / 2

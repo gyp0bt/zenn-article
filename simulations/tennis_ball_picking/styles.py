@@ -12,7 +12,7 @@ from enum import Enum
 import numpy as np
 from numpy.typing import NDArray
 
-from .energy import EnergyParams, carrying_energy, speed_with_load, walking_energy
+from .energy import speed_with_load
 
 
 class StyleType(Enum):

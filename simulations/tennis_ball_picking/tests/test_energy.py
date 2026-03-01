@@ -1,6 +1,5 @@
 """energy.py のユニットテスト."""
 
-import numpy as np
 import pytest
 
 from simulations.tennis_ball_picking.energy import (
