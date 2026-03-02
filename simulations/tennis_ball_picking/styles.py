@@ -2,6 +2,10 @@
 
 仕様書 §4 に基づく4種類の拾い方スタイルを定義する。
 各スタイルは固有の物理パラメータと行動パターンを持つ。
+
+v2 変更点:
+- Style B: 手拾い直行 → しゃがみ移動・カゴ持ち
+- Style C: 打ち飛ばし2フェーズモデルの明確化 + 打ち飛ばし比率最適化
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ class StyleType(Enum):
     """拾い方スタイルの種別."""
 
     A = "ラケット載せ運搬"
-    B = "手拾い直行"
+    B = "手拾い（しゃがみ移動・カゴ持ち）"
     C = "ラケット打ち飛ばし集約"
     D = "ホッパー巡回"
 
@@ -71,33 +75,47 @@ def style_a() -> StyleParams:
 
 
 def style_b() -> StyleParams:
-    """Style B: 手拾い直行."""
+    """Style B: 手拾い（しゃがみ移動・カゴ持ち）.
+
+    しゃがんだ状態でカゴを持って移動し、ボールを拾って即カゴに入れる。
+    カゴが手元にあるため拾い上げ→カゴ投入が速い（1.0秒/球）。
+    ただし移動速度はしゃがみ姿勢のため遅い（0.7 m/s）。
+    カゴ容量（50球）に達したらカートへ戻す。
+    """
     return StyleParams(
         style_type=StyleType.B,
-        capacity=3,
-        base_speed=1.3,
+        capacity=50,
+        base_speed=0.7,
         carry_speed=None,
-        pick_time=2.0,
-        gamma=0.02,
+        pick_time=1.0,
+        gamma=0.005,
         requires_bending=True,
     )
 
 
-def style_c() -> StyleParams:
-    """Style C: ラケット打ち飛ばし集約.
+def style_c_phase1() -> StyleParams:
+    """Style C Phase 1: 打ち飛ばし集約フェーズ.
 
-    Phase 1: 打ち飛ばしで集約（pick_time=2.5秒/球、屈伸不要）
-    Phase 2: 集約点からの一括回収（Style B相当）
+    ラケットで足元のボールをすくい、目標方向に飛ばす。
+    屈伸動作は不要（立ったまま打てる）。
     """
     return StyleParams(
         style_type=StyleType.C,
-        capacity=100,  # Phase 1では上限なし（打ち飛ばし）
+        capacity=200,  # Phase 1では上限なし（打ち飛ばし続ける）
         base_speed=1.3,
         carry_speed=None,
         pick_time=2.5,
         gamma=0.0,
         requires_bending=False,
     )
+
+
+def style_c() -> StyleParams:
+    """Style C: ラケット打ち飛ばし集約（後方互換用）.
+
+    Phase 1パラメータを返す。Phase 2はstyle_a()またはstyle_b()を使用。
+    """
+    return style_c_phase1()
 
 
 def style_d() -> StyleParams:
@@ -213,3 +231,113 @@ def estimate_total_time(
         current_pos = basket_position.copy()
 
     return total_t
+
+
+# --- Style C 打ち飛ばし比率最適化 ---
+
+
+def estimate_mixed_style_c_time(
+    ball_positions: NDArray[np.float64],
+    basket_position: NDArray[np.float64],
+    hit_target: NDArray[np.float64],
+    alpha: float,
+    phase2_style: StyleParams | None = None,
+    hit_sigma: float = 3.0,
+    rng: np.random.Generator | None = None,
+) -> float:
+    """Style C混合戦略の所要時間を推定.
+
+    ボールのうち比率αを打ち飛ばし、残り(1-α)を直接拾うの混合戦略。
+
+    Args:
+        ball_positions: shape (N, 2) のボール座標
+        basket_position: shape (2,) のカゴ座標
+        hit_target: shape (2,) 打ち飛ばし目標点
+        alpha: 打ち飛ばし比率 [0, 1]
+        phase2_style: Phase2（集約点回収）のスタイル。Noneならstyle_b()
+        hit_sigma: 打ち飛ばし着地点のばらつき [m]
+        rng: 乱数生成器
+
+    Returns:
+        混合戦略の推定総時間 [秒]
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    if phase2_style is None:
+        phase2_style = style_b()
+
+    n_balls = len(ball_positions)
+    n_hit = int(n_balls * alpha)
+    n_direct = n_balls - n_hit
+
+    # 打ち飛ばすボール: カゴから遠い順に選択
+    dists_to_basket = np.sqrt(np.sum((ball_positions - basket_position) ** 2, axis=1))
+    sorted_indices = np.argsort(dists_to_basket)[::-1]
+    hit_indices = sorted_indices[:n_hit]
+    direct_indices = sorted_indices[n_hit:]
+
+    total_time = 0.0
+
+    # Phase 1: 打ち飛ばし
+    if n_hit > 0:
+        c_phase1 = style_c_phase1()
+        hit_balls = ball_positions[hit_indices]
+        total_time += estimate_total_time(hit_balls, basket_position, c_phase1)
+
+        # Phase 2: 集約点からの回収
+        # 打ち飛ばし先にばらつきを付与
+        landed = np.tile(hit_target, (n_hit, 1)) + rng.normal(
+            0, hit_sigma, size=(n_hit, 2)
+        )
+        total_time += estimate_total_time(landed, basket_position, phase2_style)
+
+    # 直接拾い
+    if n_direct > 0:
+        direct_balls = ball_positions[direct_indices]
+        total_time += estimate_total_time(direct_balls, basket_position, phase2_style)
+
+    return total_time
+
+
+def optimize_hit_ratio(
+    ball_positions: NDArray[np.float64],
+    basket_position: NDArray[np.float64],
+    hit_target: NDArray[np.float64],
+    phase2_style: StyleParams | None = None,
+    n_alphas: int = 11,
+    hit_sigma: float = 3.0,
+    rng: np.random.Generator | None = None,
+) -> dict[str, float]:
+    """打ち飛ばし比率αの最適値を探索.
+
+    α=0（全て直接拾い）〜α=1（全て打ち飛ばし）の範囲で
+    グリッドサーチし、最小時間のαを返す。
+
+    Returns:
+        {"alpha": 最適α, "time": 最小時間, "time_all_direct": 全直接拾い時間}
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    alphas = np.linspace(0.0, 1.0, n_alphas)
+    times = []
+
+    for a in alphas:
+        t = estimate_mixed_style_c_time(
+            ball_positions,
+            basket_position,
+            hit_target,
+            alpha=a,
+            phase2_style=phase2_style,
+            hit_sigma=hit_sigma,
+            rng=np.random.default_rng(rng.integers(2**31)),
+        )
+        times.append(t)
+
+    best_idx = int(np.argmin(times))
+    return {
+        "alpha": float(alphas[best_idx]),
+        "time": times[best_idx],
+        "time_all_direct": times[0],
+    }
