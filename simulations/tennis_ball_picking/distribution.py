@@ -177,3 +177,69 @@ def create_volley_distribution(court: CourtGeometry) -> BallDistribution:
     ]
 
     return BallDistribution(name="ボレー練習", zones=zones)
+
+
+def create_cross_dtl_distribution(court: CourtGeometry) -> BallDistribution:
+    """クロス・ダウンザライン分布モデルを生成.
+
+    球出し練習でクロスやダウンザラインに配球するため、
+    ボールがコート後方かつ角（コーナー）に集中する分布。
+    ネットミスによりネット手前にも溜まる。
+
+    ゾーン構成:
+        - クロスコーナー左（北側左角）: 25%
+        - クロスコーナー右（北側右角）: 25%
+        - DTLコーナー左（北側左端）: 10%
+        - DTLコーナー右（北側右端）: 10%
+        - ネットミス帯（ネット手前・南側）: 20%
+        - バックフェンス帯（北側後方）: 10%
+    """
+    hl = court.half_length
+    hw_s = court.singles_width / 2
+
+    zones = [
+        # クロスコーナー左（北側ベースライン左角）
+        BallZone(
+            name="クロスコーナー（左）",
+            weight=0.25,
+            mu=np.array([-hw_s + 1.0, hl - 1.0]),
+            sigma=np.array([[2.5, 0.3], [0.3, 2.0]]),
+        ),
+        # クロスコーナー右（北側ベースライン右角）
+        BallZone(
+            name="クロスコーナー（右）",
+            weight=0.25,
+            mu=np.array([hw_s - 1.0, hl - 1.0]),
+            sigma=np.array([[2.5, -0.3], [-0.3, 2.0]]),
+        ),
+        # DTLコーナー左（北側左端サイドライン際）
+        BallZone(
+            name="DTLコーナー（左）",
+            weight=0.10,
+            mu=np.array([-hw_s, hl - 2.0]),
+            sigma=np.array([[1.5, 0.0], [0.0, 3.0]]),
+        ),
+        # DTLコーナー右（北側右端サイドライン際）
+        BallZone(
+            name="DTLコーナー（右）",
+            weight=0.10,
+            mu=np.array([hw_s, hl - 2.0]),
+            sigma=np.array([[1.5, 0.0], [0.0, 3.0]]),
+        ),
+        # ネットミス帯（ネット手前・南側に落ちる）
+        BallZone(
+            name="ネットミス帯",
+            weight=0.20,
+            mu=np.array([0.0, -2.0]),
+            sigma=np.array([[8.0, 0.0], [0.0, 1.5]]),
+        ),
+        # バックフェンス帯（深い球のオーバー）
+        BallZone(
+            name="バックフェンス帯",
+            weight=0.10,
+            mu=np.array([0.0, hl + court.back_space * 0.5]),
+            sigma=np.array([[5.0, 0.0], [0.0, 2.0]]),
+        ),
+    ]
+
+    return BallDistribution(name="クロス・ダウンザライン", zones=zones)
