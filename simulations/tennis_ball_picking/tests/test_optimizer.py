@@ -5,7 +5,9 @@ import pytest
 
 from ..court import CourtGeometry
 from ..energy import EnergyParams
+from ..basket import BasketConfig
 from ..optimizer import (
+    MultiBasketResult,
     RouteResult,
     _extract_pareto_front,
     _split_into_trips,
@@ -13,6 +15,7 @@ from ..optimizer import (
     compare_styles,
     evaluate_route,
     greedy_nearest_neighbor,
+    optimize_multi_basket,
     optimize_route,
     pareto_front,
     two_opt_improve,
@@ -352,3 +355,69 @@ class TestExtractParetoFront:
         times = [p["time"] for p in front]
         assert 10.0 in times
         assert 30.0 in times
+
+
+# --- optimize_multi_basket テスト ---
+
+
+class TestOptimizeMultiBasket:
+    def test_basic_multi_basket(
+        self, many_balls: np.ndarray, basket: np.ndarray
+    ) -> None:
+        baskets = np.array([[-5.0, 5.0], [5.0, 5.0], [-5.0, -5.0], [5.0, -5.0]])
+        result = optimize_multi_basket(many_balls, baskets, style_b())
+        assert isinstance(result, MultiBasketResult)
+        assert result.total_time > 0
+        assert result.total_energy > 0
+        assert len(result.assignments) == len(many_balls)
+
+    def test_all_baskets_used(self) -> None:
+        """4角に配置されたボールが4カゴに分かれる."""
+        rng = np.random.default_rng(42)
+        corners = [(-8, 8), (8, 8), (-8, -8), (8, -8)]
+        balls_list = []
+        for cx, cy in corners:
+            cluster = rng.normal(loc=[cx, cy], scale=0.5, size=(10, 2))
+            balls_list.append(cluster)
+        balls = np.vstack(balls_list)
+        baskets = np.array([[-8.0, 8.0], [8.0, 8.0], [-8.0, -8.0], [8.0, -8.0]])
+        result = optimize_multi_basket(balls, baskets, style_b())
+        # 各カゴに概ね10球ずつ割り当てられる
+        for k in range(4):
+            assert k in result.basket_results
+
+    def test_dump_time_with_overflow(self) -> None:
+        """カゴ容量を超えた場合にカート戻し時間が加算される."""
+        rng = np.random.default_rng(42)
+        # 1カゴに60球（容量50を超える）
+        balls = rng.uniform(-2, 2, size=(60, 2))
+        baskets = np.array([[0.0, 0.0]])
+        config = BasketConfig(n_baskets=1, basket_capacity=50, dump_time=10.0)
+        result = optimize_multi_basket(balls, baskets, style_b(), basket_config=config)
+        assert result.n_dumps >= 1
+        assert result.dump_time_total >= 10.0
+
+    def test_multi_basket_faster_than_single(self) -> None:
+        """4カゴはシングルカゴより速い（並列化の効果）."""
+        rng = np.random.default_rng(42)
+        balls = rng.uniform(-10, 10, size=(80, 2))
+        single_basket = np.array([[0.0, 0.0]])
+        multi_baskets = np.array([[-5.0, 5.0], [5.0, 5.0], [-5.0, -5.0], [5.0, -5.0]])
+        config_single = BasketConfig(n_baskets=1, basket_capacity=200)
+        config_multi = BasketConfig(n_baskets=4, basket_capacity=50)
+
+        result_single = optimize_multi_basket(
+            balls, single_basket, style_d(), basket_config=config_single
+        )
+        result_multi = optimize_multi_basket(
+            balls, multi_baskets, style_d(), basket_config=config_multi
+        )
+        # 4カゴのボトルネック時間 < 1カゴの全体時間
+        assert result_multi.total_time < result_single.total_time
+
+    def test_empty_balls(self) -> None:
+        balls = np.empty((0, 2))
+        baskets = np.array([[0.0, 0.0], [5.0, 5.0]])
+        result = optimize_multi_basket(balls, baskets, style_b())
+        assert result.total_time == 0.0
+        assert result.total_energy == 0.0
