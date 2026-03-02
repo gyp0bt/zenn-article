@@ -10,3 +10,4 @@
 | [002](./status-002.md) | 2026-03-01 | 詳細仕様書策定・プロジェクト再編 | Claude Code | `claude/create-project-specs-eI4BC` |
 | [003](./status-003.md) | 2026-03-01 | テニス球拾い #1 記事執筆・シミュレーション基盤 | Claude Code | `claude/execute-status-todos-4YF1x` |
 | [004](./status-004.md) | 2026-03-01 | テニス球拾い #2 エネルギーモデル・基盤拡張 | Claude Code | `claude/execute-status-todos-vrS4j` |
+| [005](./status-005.md) | 2026-03-02 | テニス球拾い #3 収集効率解析・パレートフロント | Claude Code | `claude/execute-status-todos-LdUna` |
