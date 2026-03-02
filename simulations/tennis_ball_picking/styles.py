@@ -62,14 +62,20 @@ class StyleParams:
 
 
 def style_a() -> StyleParams:
-    """Style A: ラケット載せ運搬."""
+    """Style A: ラケット載せ運搬.
+
+    ラケット面にボールをピラミッド状に積んでカゴまで運搬する。
+    3段ピラミッド（底3〜4 + 中2 + 頂1 ≒ 6球前後）が上限。
+    ピラミッドの安定性が低く、急ぐと崩れて落ちるため
+    運搬時の歩行速度が非常に低い。体感では最も遅いスタイル。
+    """
     return StyleParams(
         style_type=StyleType.A,
-        capacity=5,
+        capacity=6,
         base_speed=1.3,
-        carry_speed=0.9,
+        carry_speed=0.7,
         pick_time=2.0,
-        gamma=0.04,
+        gamma=0.05,
         requires_bending=True,
     )
 
@@ -77,17 +83,18 @@ def style_a() -> StyleParams:
 def style_b() -> StyleParams:
     """Style B: 手拾い（しゃがみ移動・カゴ持ち）.
 
-    しゃがんだ状態でカゴを持って移動し、ボールを拾って即カゴに入れる。
-    カゴが手元にあるため拾い上げ→カゴ投入が速い（1.0秒/球）。
+    しゃがんだ状態でカゴを持って移動し、両手でボールを拾って即カゴに入れる。
+    両手で2〜3個/秒のペースで投入可能（pick_time ≒ 0.4秒/球）。
     ただし移動速度はしゃがみ姿勢のため遅い（0.7 m/s）。
     カゴ容量（50球）に達したらカートへ戻す。
+    体感では C+B混合に次いで2番目に速いスタイル。
     """
     return StyleParams(
         style_type=StyleType.B,
         capacity=50,
         base_speed=0.7,
         carry_speed=None,
-        pick_time=1.0,
+        pick_time=0.4,
         gamma=0.005,
         requires_bending=True,
     )
