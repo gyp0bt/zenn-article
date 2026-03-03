@@ -12,3 +12,4 @@
 | [004](./status-004.md) | 2026-03-01 | テニス球拾い #2 エネルギーモデル・基盤拡張 | Claude Code | `claude/execute-status-todos-vrS4j` |
 | [005](./status-005.md) | 2026-03-02 | テニス球拾い #3 収集効率解析・パレートフロント | Claude Code | `claude/tennis-ball-collection-41kDO` |
 | [006](./status-006.md) | 2026-03-02 | 球拾いモデル軌道修正: 4カゴ・クロスDTL・Style B/C再定義 | Claude Code | `claude/optimize-ball-collection-AR6yQ` |
+| [007](./status-007.md) | 2026-03-03 | 記事#1〜#3書き直し: 4カゴ・しゃがみ移動推し・α最適化 | Claude Code | `claude/update-game-specs-Iadpi` |
