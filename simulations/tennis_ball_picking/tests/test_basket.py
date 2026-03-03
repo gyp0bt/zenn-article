@@ -6,6 +6,7 @@ import pytest
 from simulations.tennis_ball_picking.basket import (
     BasketConfig,
     assign_balls_to_baskets,
+    assign_balls_to_baskets_with_capacity,
     compute_basket_distances,
     optimize_basket_placement,
     total_basket_distance,
@@ -121,6 +122,51 @@ class TestComputeBasketDistances:
         assignments = np.array([0, 0])
         dists = compute_basket_distances(balls, baskets, assignments)
         np.testing.assert_array_almost_equal(dists, [3.0, 4.0])
+
+
+class TestAssignBallsWithCapacity:
+    def test_respects_capacity(self) -> None:
+        """各カゴの割り当て数が容量以下になる."""
+        rng = np.random.default_rng(42)
+        balls = rng.uniform(-10, 10, size=(100, 2))
+        baskets = np.array([[-5.0, 5.0], [5.0, 5.0], [-5.0, -5.0], [5.0, -5.0]])
+        assignments = assign_balls_to_baskets_with_capacity(
+            balls, baskets, basket_capacity=30
+        )
+        for k in range(4):
+            assert np.sum(assignments == k) <= 30
+
+    def test_all_balls_assigned(self) -> None:
+        """全ボールが割り当てられる."""
+        rng = np.random.default_rng(42)
+        balls = rng.uniform(-10, 10, size=(80, 2))
+        baskets = np.array([[-5.0, 5.0], [5.0, 5.0], [-5.0, -5.0], [5.0, -5.0]])
+        assignments = assign_balls_to_baskets_with_capacity(
+            balls, baskets, basket_capacity=25
+        )
+        assert len(assignments) == 80
+        assert all(0 <= a < 4 for a in assignments)
+
+    def test_prefers_nearest(self) -> None:
+        """容量に余裕がある場合は最近傍カゴに割り当てる."""
+        balls = np.array([[0.1, 0.1], [9.9, 9.9]])
+        baskets = np.array([[0.0, 0.0], [10.0, 10.0]])
+        assignments = assign_balls_to_baskets_with_capacity(
+            balls, baskets, basket_capacity=50
+        )
+        assert assignments[0] == 0
+        assert assignments[1] == 1
+
+    def test_overflow_to_next_nearest(self) -> None:
+        """容量超過時は次に近いカゴに割り当てる."""
+        balls = np.array([[0.0, 0.0], [0.1, 0.1], [0.2, 0.2]])
+        baskets = np.array([[0.0, 0.0], [10.0, 10.0]])
+        assignments = assign_balls_to_baskets_with_capacity(
+            balls, baskets, basket_capacity=2
+        )
+        # 3球のうち2球がカゴ0、1球がカゴ1に溢れる
+        assert np.sum(assignments == 0) == 2
+        assert np.sum(assignments == 1) == 1
 
 
 class TestTotalBasketDistance:

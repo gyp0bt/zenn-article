@@ -18,7 +18,11 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from .basket import BasketConfig, assign_balls_to_baskets
+from .basket import (
+    BasketConfig,
+    assign_balls_to_baskets,
+    assign_balls_to_baskets_with_capacity,
+)
 from .energy import (
     EnergyParams,
     carrying_energy,
@@ -485,8 +489,9 @@ def optimize_multi_basket(
 ) -> MultiBasketResult:
     """複数カゴでの経路最適化.
 
-    各ボールを最近傍カゴに割り当て、カゴ別に経路最適化を行う。
-    カゴ容量を超える場合はカートへの戻し時間を加算する。
+    各ボールを容量制約付きでカゴに割り当て、カゴ別に経路最適化を行う。
+    いっぱいになったカゴはカートに戻す（ボールは空にせず、カゴごと
+    カートに載せる）。カゴは再利用されず、空きカゴが1つ減る。
 
     Args:
         ball_positions: shape (N, 2) のボール座標
@@ -502,8 +507,10 @@ def optimize_multi_basket(
     if basket_config is None:
         basket_config = BasketConfig()
 
-    # ボールをカゴに割り当て
-    assignments = assign_balls_to_baskets(ball_positions, basket_positions)
+    # ボールをカゴに容量制約付きで割り当て
+    assignments = assign_balls_to_baskets_with_capacity(
+        ball_positions, basket_positions, basket_config.basket_capacity
+    )
 
     basket_results: dict[int, RouteResult] = {}
     total_energy = 0.0
@@ -536,16 +543,13 @@ def optimize_multi_basket(
             use_2opt,
         )
 
-        # カート戻し回数: カゴ容量を超えた分
-        n_dumps_k = max(0, len(k_balls) // basket_config.basket_capacity - 1)
-        if len(k_balls) > basket_config.basket_capacity:
-            n_dumps_k = (len(k_balls) - 1) // basket_config.basket_capacity
-
+        # カート戻し: カゴ1つにつき1回（いっぱいになったカゴをカートに載せる）
+        # カゴは再利用しない（空きカゴが1つ減るモデル）
+        n_dumps_k = 1  # カゴに球があれば1回カートに戻す
         dump_time_k = n_dumps_k * basket_config.dump_time
         total_dumps += n_dumps_k
         total_dump_time += dump_time_k
 
-        # カゴ→カート距離（最後に1回戻す分もある）
         basket_time = result.total_time + dump_time_k
         basket_results[k] = result
 

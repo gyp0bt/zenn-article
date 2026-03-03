@@ -386,16 +386,16 @@ class TestOptimizeMultiBasket:
         for k in range(4):
             assert k in result.basket_results
 
-    def test_dump_time_with_overflow(self) -> None:
-        """カゴ容量を超えた場合にカート戻し時間が加算される."""
+    def test_basket_return_time(self) -> None:
+        """ボールがあるカゴはカートに戻すため搬送時間が加算される."""
         rng = np.random.default_rng(42)
-        # 1カゴに60球（容量50を超える）
-        balls = rng.uniform(-2, 2, size=(60, 2))
+        balls = rng.uniform(-2, 2, size=(30, 2))
         baskets = np.array([[0.0, 0.0]])
         config = BasketConfig(n_baskets=1, basket_capacity=50, dump_time=10.0)
         result = optimize_multi_basket(balls, baskets, style_b(), basket_config=config)
-        assert result.n_dumps >= 1
-        assert result.dump_time_total >= 10.0
+        # カゴ1つにボールがあるので1回カートに戻す
+        assert result.n_dumps == 1
+        assert result.dump_time_total == pytest.approx(10.0)
 
     def test_multi_basket_faster_than_single(self) -> None:
         """4カゴはシングルカゴより速い（並列化の効果）."""
