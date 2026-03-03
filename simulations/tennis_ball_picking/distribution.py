@@ -2,6 +2,11 @@
 
 球出し練習の種類に応じたボールの空間分布を
 ガウス混合モデル（GMM）として定義する。
+
+v3 変更点:
+- ボール物理モデル追加: 着地後のバウンド・転がり・フェンス跳ね返り
+  テニスボールは着地後にコート枠で停止せず、バウンドして
+  バックフェンスまで転がったり、フェンスに当たって跳ね返る。
 """
 
 from __future__ import annotations
@@ -88,6 +93,106 @@ class BallDistribution:
             samples = np.vstack([samples, batch[in_bounds]])
 
         return samples[:n_balls]
+
+
+def apply_ball_rolling(
+    landing_positions: NDArray[np.float64],
+    court: CourtGeometry,
+    rng: np.random.Generator | None = None,
+    mean_roll: float = 3.0,
+    mean_roll_net_miss: float = 1.0,
+    mean_bounce_back: float = 0.5,
+) -> NDArray[np.float64]:
+    """着地後のバウンド・転がり・フェンス跳ね返りをシミュレート.
+
+    テニスボールは着地後にコート枠で停止しない。
+    バウンドしてバックフェンス側まで転がったり、
+    フェンスに当たって跳ね返って戻ってきたりする。
+
+    物理モデル:
+    - ボールは打球方向（おおよそネットから離れる方向）に転がり続ける
+    - 転がり距離は指数分布でモデル化（平均 mean_roll [m]）
+    - フェンスに到達すると停止し、わずかに跳ね返る（平均 mean_bounce_back [m]）
+    - ネット手前のミスショットは転がりが少ない（平均 mean_roll_net_miss [m]）
+
+    Args:
+        landing_positions: shape (N, 2) のボール着地位置
+        court: コートジオメトリ（フェンス境界判定用）
+        rng: 乱数生成器
+        mean_roll: 通常ボールの平均転がり距離 [m]
+        mean_roll_net_miss: ネットミスボールの平均転がり距離 [m]
+        mean_bounce_back: フェンス跳ね返りの平均距離 [m]
+
+    Returns:
+        shape (N, 2) の最終静止位置
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    n = len(landing_positions)
+    if n == 0:
+        return landing_positions.copy()
+
+    result = landing_positions.copy()
+
+    # 転がり方向: ネット中心(0,0)から着地点への方向 + ランダムなゆらぎ
+    directions = landing_positions.copy()
+    norms = np.sqrt(np.sum(directions**2, axis=1, keepdims=True))
+    norms = np.maximum(norms, 0.1)
+    unit_dirs = directions / norms
+
+    # 方向にランダムな角度ずれ（±17°程度）を加える
+    base_angles = np.arctan2(unit_dirs[:, 1], unit_dirs[:, 0])
+    angle_noise = rng.normal(0, 0.3, size=n)
+    roll_angles = base_angles + angle_noise
+
+    # 転がり距離: 指数分布
+    roll_dists = rng.exponential(mean_roll, size=n)
+
+    # ネット手前（y < 0）のボールは転がりが少ない（ネットに当たって落ちた球）
+    net_miss_mask = landing_positions[:, 1] < 0
+    n_net_miss = net_miss_mask.sum()
+    if n_net_miss > 0:
+        roll_dists[net_miss_mask] = rng.exponential(mean_roll_net_miss, size=n_net_miss)
+
+    # 転がり適用
+    result[:, 0] += roll_dists * np.cos(roll_angles)
+    result[:, 1] += roll_dists * np.sin(roll_angles)
+
+    # フェンス境界での跳ね返り
+    # バックフェンス（北端）
+    over_back = result[:, 1] > court.y_max
+    if over_back.any():
+        n_over = over_back.sum()
+        bounce = rng.exponential(mean_bounce_back, size=n_over)
+        result[over_back, 1] = court.y_max - bounce
+
+    # 南フェンス
+    over_south = result[:, 1] < court.y_min
+    if over_south.any():
+        n_over = over_south.sum()
+        bounce = rng.exponential(mean_bounce_back, size=n_over)
+        result[over_south, 1] = court.y_min + bounce
+
+    # 東フェンス
+    over_east = result[:, 0] > court.x_max
+    if over_east.any():
+        n_over = over_east.sum()
+        bounce = rng.exponential(mean_bounce_back, size=n_over)
+        result[over_east, 0] = court.x_max - bounce
+
+    # 西フェンス
+    over_west = result[:, 0] < court.x_min
+    if over_west.any():
+        n_over = over_west.sum()
+        bounce = rng.exponential(mean_bounce_back, size=n_over)
+        result[over_west, 0] = court.x_min + bounce
+
+    # 最終的に有効領域内にクランプ
+    result[:, 0] = np.clip(result[:, 0], court.x_min, court.x_max)
+    result[:, 1] = np.clip(result[:, 1], court.y_min, court.y_max)
+
+    return result
 
 
 def create_stroke_distribution(court: CourtGeometry) -> BallDistribution:
@@ -185,6 +290,10 @@ def create_cross_dtl_distribution(court: CourtGeometry) -> BallDistribution:
     球出し練習でクロスやダウンザラインに配球するため、
     ボールがコート後方かつ角（コーナー）に集中する分布。
     ネットミスによりネット手前にも溜まる。
+
+    注意: このGMMはボールの「着地位置」を表す。実際のボールは
+    着地後にバウンド・転がりが発生するため、最終静止位置は
+    apply_ball_rolling() で補正する必要がある。
 
     ゾーン構成:
         - クロスコーナー左（北側左角）: 25%

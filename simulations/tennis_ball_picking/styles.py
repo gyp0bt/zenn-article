@@ -64,18 +64,18 @@ class StyleParams:
 def style_a() -> StyleParams:
     """Style A: ラケット載せ運搬.
 
-    ラケット面にボールをピラミッド状に積んでカゴまで運搬する。
-    3段ピラミッド（底3〜4 + 中2 + 頂1 ≒ 6球前後）が上限。
-    ピラミッドの安定性が低く、急ぐと崩れて落ちるため
-    運搬時の歩行速度が非常に低い。体感では最も遅いスタイル。
+    ラケット面にボールを山積みにしてカゴまで運搬する。
+    慣れた人で約20球を一度に運搬可能。ただしボールの
+    山が大きくなるほど不安定になり、急ぐと崩れて落ちるため
+    運搬時の歩行速度が著しく低下する。体感では最も遅いスタイル。
     """
     return StyleParams(
         style_type=StyleType.A,
-        capacity=6,
+        capacity=20,
         base_speed=1.3,
         carry_speed=0.7,
         pick_time=2.0,
-        gamma=0.05,
+        gamma=0.02,
         requires_bending=True,
     )
 

@@ -24,9 +24,9 @@ class TestStyleParams:
     def test_style_a_values(self) -> None:
         s = style_a()
         assert s.style_type == StyleType.A
-        assert s.capacity == 6
+        assert s.capacity == 20
         assert s.carry_speed == pytest.approx(0.7)
-        assert s.gamma == pytest.approx(0.05)
+        assert s.gamma == pytest.approx(0.02)
         assert s.requires_bending is True
 
     def test_style_b_values(self) -> None:

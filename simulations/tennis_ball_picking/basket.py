@@ -3,6 +3,13 @@
 4カゴ + 中央カートの運用をモデル化する。
 仕様書 §3.4 に基づき、カゴ配置の最適化（k-medians問題）と
 カゴ満杯時のカート戻し動作を扱う。
+
+v3 変更点:
+- カート移動モデル: カートは移動可能（車輪付き）で位置を最適化できる
+- カゴ使い捨てモデル: いっぱいになったカゴはカートに戻し、
+  ボールは空にならず（カゴごとカートに載せる）、空きカゴが1つ減る。
+  カゴの再利用はない。
+- 容量制約付きカゴ割り当て: 各カゴの最大容量を超えないように割り当て
 """
 
 from __future__ import annotations
@@ -19,11 +26,15 @@ from .court import CourtGeometry
 class BasketConfig:
     """カゴ・カートの構成パラメータ.
 
+    カートは車輪付きで移動可能。いっぱいになったカゴは
+    カートに載せて戻す（ボールは空にしない）。
+    戻すたびに空きカゴが1つ減る。
+
     Attributes:
         n_baskets: カゴ数
         basket_capacity: 1カゴあたりの容量 [球]
-        cart_position: 中央カート位置 (2,)
-        dump_time: カゴ→カート投入時間 [秒]
+        cart_position: カート位置 (2,)。移動可能なので最適位置に配置可能
+        dump_time: カゴ→カート搬送時間 [秒]（カゴをカートまで運んで載せる時間）
     """
 
     n_baskets: int = 4
@@ -60,6 +71,58 @@ def assign_balls_to_baskets(
     diff = ball_positions[:, np.newaxis, :] - basket_positions[np.newaxis, :, :]
     dists = np.sqrt(np.sum(diff**2, axis=2))
     return np.argmin(dists, axis=1)
+
+
+def assign_balls_to_baskets_with_capacity(
+    ball_positions: NDArray[np.float64],
+    basket_positions: NDArray[np.float64],
+    basket_capacity: int = 50,
+) -> NDArray[np.intp]:
+    """容量制約付きで各ボールを最近傍のカゴに割り当てる.
+
+    各カゴはbasket_capacity球までしか受け入れない。
+    いっぱいになったカゴは空きカゴが減るモデルに対応し、
+    溢れたボールは次に近いカゴに再割り当てされる。
+
+    Args:
+        ball_positions: shape (N, 2) のボール座標
+        basket_positions: shape (K, 2) のカゴ座標
+        basket_capacity: 1カゴあたりの最大容量
+
+    Returns:
+        shape (N,) の割り当てインデックス
+    """
+    n_balls = len(ball_positions)
+    n_baskets = len(basket_positions)
+
+    # 全ボールと全カゴの距離行列 (N, K)
+    diff = ball_positions[:, np.newaxis, :] - basket_positions[np.newaxis, :, :]
+    dists = np.sqrt(np.sum(diff**2, axis=2))
+
+    assignments = np.full(n_balls, -1, dtype=np.intp)
+    basket_counts = np.zeros(n_baskets, dtype=int)
+
+    # 距離が近い順にソートして、貪欲に割り当て
+    # 各ボールについて近い順のカゴリストを作る
+    sorted_baskets = np.argsort(dists, axis=1)  # (N, K)
+
+    # カゴまでの距離が近いボールから優先的に割り当て
+    min_dists = dists.min(axis=1)
+    ball_order = np.argsort(min_dists)
+
+    for i in ball_order:
+        for k in sorted_baskets[i]:
+            if basket_counts[k] < basket_capacity:
+                assignments[i] = k
+                basket_counts[k] += 1
+                break
+
+    # 割り当てられなかったボールは最も近いカゴに強制割り当て
+    unassigned = assignments == -1
+    if unassigned.any():
+        assignments[unassigned] = np.argmin(dists[unassigned], axis=1)
+
+    return assignments
 
 
 def optimize_basket_placement(
