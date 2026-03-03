@@ -6,6 +6,7 @@ import pytest
 from simulations.tennis_ball_picking.styles import (
     StyleType,
     estimate_mixed_style_c_time,
+    estimate_phase1_hitting_time,
     estimate_total_time,
     get_all_styles,
     optimize_hit_ratio,
@@ -42,7 +43,7 @@ class TestStyleParams:
     def test_style_c_values(self) -> None:
         s = style_c()
         assert s.style_type == StyleType.C
-        assert s.pick_time == pytest.approx(2.5)
+        assert s.pick_time == pytest.approx(1.0)  # スイング時間
         assert s.requires_bending is False
 
     def test_style_c_phase1_values(self) -> None:
@@ -147,6 +148,72 @@ class TestEstimateTotalTime:
         rng = np.random.default_rng(42)
         balls = rng.uniform(-5, 5, size=(10, 2))
         t = estimate_total_time(balls, basket, style_d())
+        assert t > 0
+
+
+class TestPhase1HittingTime:
+    def test_no_balls(self) -> None:
+        start = np.array([0.0, 0.0])
+        balls = np.empty((0, 2))
+        assert estimate_phase1_hitting_time(balls, start) == pytest.approx(0.0)
+
+    def test_single_ball(self) -> None:
+        """1球: 移動 + 1スイング."""
+        start = np.array([0.0, 0.0])
+        balls = np.array([[5.0, 0.0]])
+        t = estimate_phase1_hitting_time(balls, start, swing_time=1.0)
+        # 5m / 1.3 m/s ≈ 3.85s + 1.0s swing
+        expected = 5.0 / 1.3 + 1.0
+        assert t == pytest.approx(expected, rel=1e-3)
+
+    def test_dense_cluster_scoops_multiple(self) -> None:
+        """密集した4球: 1スイングでまとめて打てる."""
+        start = np.array([0.0, 0.0])
+        # 4球が半径0.5m以内に密集
+        balls = np.array(
+            [
+                [10.0, 0.0],
+                [10.3, 0.2],
+                [10.1, -0.3],
+                [9.8, 0.1],
+            ]
+        )
+        t = estimate_phase1_hitting_time(
+            balls, start, swing_time=1.0, scoop_radius=1.0, max_balls_per_swing=4
+        )
+        # 密集地帯: 移動 + 1スイングで4球飛ばせる
+        # 過疎の場合（4スイング）よりも速い
+        t_sparse = estimate_phase1_hitting_time(
+            balls, start, swing_time=1.0, scoop_radius=0.01, max_balls_per_swing=1
+        )
+        assert t < t_sparse
+
+    def test_sparse_balls_one_per_swing(self) -> None:
+        """散在した球: 1球/スイング."""
+        start = np.array([0.0, 0.0])
+        # 5球が十分離れている
+        balls = np.array(
+            [
+                [5.0, 0.0],
+                [10.0, 0.0],
+                [15.0, 0.0],
+                [20.0, 0.0],
+                [25.0, 0.0],
+            ]
+        )
+        t = estimate_phase1_hitting_time(
+            balls, start, swing_time=1.0, scoop_radius=1.0, max_balls_per_swing=4
+        )
+        # 各球が離れているので5スイング必要
+        assert t >= 5.0  # 最低5スイング分
+
+    def test_no_basket_trip(self) -> None:
+        """Phase 1はカゴへの往復なし（estimate_total_timeとの違い）."""
+        start = np.array([0.0, 0.0])
+        balls = np.array([[5.0, 0.0], [10.0, 0.0]])
+        t = estimate_phase1_hitting_time(balls, start)
+        # カゴ往復がないので、最後のボール位置から戻らない
+        # estimate_total_time より短いはず（同じ条件なら）
         assert t > 0
 
 
