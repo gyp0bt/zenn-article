@@ -6,6 +6,10 @@
 v2 変更点:
 - Style B: 手拾い直行 → しゃがみ移動・カゴ持ち
 - Style C: 打ち飛ばし2フェーズモデルの明確化 + 打ち飛ばし比率最適化
+
+v3 変更点:
+- Style C Phase 1: 固定2.5秒/球 → 密度依存スイングモデル
+  - 1スイング ≈ 1秒、密集地帯で3〜4球/スイング、過疎地帯で1球/スイング
 """
 
 from __future__ import annotations
@@ -105,13 +109,18 @@ def style_c_phase1() -> StyleParams:
 
     ラケットで足元のボールをすくい、目標方向に飛ばす。
     屈伸動作は不要（立ったまま打てる）。
+
+    pick_time はスイング1回あたりの時間（1.0秒）。
+    密集地帯では1スイングで3〜4球飛ばせるため、
+    実効の1球あたり時間は密度に依存する（0.25〜1.0秒/球）。
+    過疎地帯では1球/スイング（1.0秒/球）となる。
     """
     return StyleParams(
         style_type=StyleType.C,
         capacity=200,  # Phase 1では上限なし（打ち飛ばし続ける）
         base_speed=1.3,
         carry_speed=None,
-        pick_time=2.5,
+        pick_time=1.0,  # スイング時間（密度依存モデルで使用）
         gamma=0.0,
         requires_bending=False,
     )
@@ -240,6 +249,80 @@ def estimate_total_time(
     return total_t
 
 
+# --- Style C 密度依存スイングモデル ---
+
+# 打ち飛ばしパラメータ（デフォルト値）
+SWING_TIME: float = 1.0  # スイング1回あたりの時間 [秒]
+SCOOP_RADIUS: float = 1.0  # 1スイングで巻き込める半径 [m]
+MAX_BALLS_PER_SWING: int = 4  # 1スイングの最大球数（密集地帯）
+
+
+def estimate_phase1_hitting_time(
+    ball_positions: NDArray[np.float64],
+    start_position: NDArray[np.float64],
+    swing_time: float = SWING_TIME,
+    scoop_radius: float = SCOOP_RADIUS,
+    max_balls_per_swing: int = MAX_BALLS_PER_SWING,
+    walk_speed: float = 1.3,
+) -> float:
+    """Phase 1 打ち飛ばしの所要時間を推定（密度依存モデル）.
+
+    密集地帯では1スイングで複数球（最大 max_balls_per_swing）を飛ばせる。
+    過疎地帯では1球/スイングとなる。
+    Phase 1 はカゴへの往復不要（打つだけ）。
+
+    Args:
+        ball_positions: shape (N, 2) のボール座標
+        start_position: shape (2,) の開始位置（通常はカゴ位置）
+        swing_time: 1スイングの所要時間 [秒]（通常1.0、本気0.5）
+        scoop_radius: 1スイングで巻き込める半径 [m]
+        max_balls_per_swing: 1スイングの最大球数
+        walk_speed: 移動速度 [m/s]
+
+    Returns:
+        Phase 1 の推定所要時間 [秒]
+    """
+    n_balls = len(ball_positions)
+    if n_balls == 0:
+        return 0.0
+
+    remaining = set(range(n_balls))
+    current_pos = start_position.copy()
+    total_t = 0.0
+
+    while remaining:
+        # 最近傍のボールを探す
+        dists = {
+            i: float(np.linalg.norm(ball_positions[i] - current_pos)) for i in remaining
+        }
+        nearest = min(dists, key=dists.get)  # type: ignore[arg-type]
+
+        # 最近傍まで移動
+        if dists[nearest] > 0:
+            total_t += dists[nearest] / walk_speed
+        current_pos = ball_positions[nearest].copy()
+        remaining.remove(nearest)
+
+        # scoop_radius 内の周辺球をまとめて打つ
+        scooped = 1
+        to_remove = []
+        for i in remaining:
+            if scooped >= max_balls_per_swing:
+                break
+            dist_to_nearest = float(np.linalg.norm(ball_positions[i] - current_pos))
+            if dist_to_nearest <= scoop_radius:
+                to_remove.append(i)
+                scooped += 1
+
+        for i in to_remove:
+            remaining.remove(i)
+
+        # 1スイング（まとめて打つ）
+        total_t += swing_time
+
+    return total_t
+
+
 # --- Style C 打ち飛ばし比率最適化 ---
 
 
@@ -250,11 +333,15 @@ def estimate_mixed_style_c_time(
     alpha: float,
     phase2_style: StyleParams | None = None,
     hit_sigma: float = 3.0,
+    swing_time: float = SWING_TIME,
+    scoop_radius: float = SCOOP_RADIUS,
+    max_balls_per_swing: int = MAX_BALLS_PER_SWING,
     rng: np.random.Generator | None = None,
 ) -> float:
     """Style C混合戦略の所要時間を推定.
 
     ボールのうち比率αを打ち飛ばし、残り(1-α)を直接拾うの混合戦略。
+    Phase 1は密度依存スイングモデルを使用する。
 
     Args:
         ball_positions: shape (N, 2) のボール座標
@@ -263,6 +350,9 @@ def estimate_mixed_style_c_time(
         alpha: 打ち飛ばし比率 [0, 1]
         phase2_style: Phase2（集約点回収）のスタイル。Noneならstyle_b()
         hit_sigma: 打ち飛ばし着地点のばらつき [m]
+        swing_time: 1スイングの所要時間 [秒]
+        scoop_radius: 1スイングで巻き込める半径 [m]
+        max_balls_per_swing: 1スイングの最大球数
         rng: 乱数生成器
 
     Returns:
@@ -286,11 +376,18 @@ def estimate_mixed_style_c_time(
 
     total_time = 0.0
 
-    # Phase 1: 打ち飛ばし
+    # Phase 1: 打ち飛ばし（密度依存スイングモデル）
     if n_hit > 0:
-        c_phase1 = style_c_phase1()
         hit_balls = ball_positions[hit_indices]
-        total_time += estimate_total_time(hit_balls, basket_position, c_phase1)
+        c_phase1 = style_c_phase1()
+        total_time += estimate_phase1_hitting_time(
+            hit_balls,
+            basket_position,
+            swing_time=swing_time,
+            scoop_radius=scoop_radius,
+            max_balls_per_swing=max_balls_per_swing,
+            walk_speed=c_phase1.base_speed,
+        )
 
         # Phase 2: 集約点からの回収
         # 打ち飛ばし先にばらつきを付与
@@ -314,6 +411,9 @@ def optimize_hit_ratio(
     phase2_style: StyleParams | None = None,
     n_alphas: int = 11,
     hit_sigma: float = 3.0,
+    swing_time: float = SWING_TIME,
+    scoop_radius: float = SCOOP_RADIUS,
+    max_balls_per_swing: int = MAX_BALLS_PER_SWING,
     rng: np.random.Generator | None = None,
 ) -> dict[str, float]:
     """打ち飛ばし比率αの最適値を探索.
@@ -338,6 +438,9 @@ def optimize_hit_ratio(
             alpha=a,
             phase2_style=phase2_style,
             hit_sigma=hit_sigma,
+            swing_time=swing_time,
+            scoop_radius=scoop_radius,
+            max_balls_per_swing=max_balls_per_swing,
             rng=np.random.default_rng(rng.integers(2**31)),
         )
         times.append(t)
