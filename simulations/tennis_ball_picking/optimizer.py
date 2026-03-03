@@ -8,6 +8,7 @@
 - Greedy法（最近傍法）: 常に最も近いボールを拾いに行く
 - 2-opt改善: Greedy解を局所探索で改善する
 - パレートフロント: 時間vsエネルギーの多目的最適化
+- 複数カゴ対応: カゴ割り当て→カゴ別経路最適化→カート戻しコスト
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+from .basket import BasketConfig, assign_balls_to_baskets
 from .energy import (
     EnergyParams,
     carrying_energy,
@@ -447,3 +449,114 @@ def _extract_pareto_front(
             min_energy = p["energy"]
 
     return front
+
+
+# --- 複数カゴ対応 ---
+
+
+@dataclass
+class MultiBasketResult:
+    """複数カゴ経路最適化の結果.
+
+    Attributes:
+        basket_results: カゴ別のRouteResult辞書 {カゴ番号: RouteResult}
+        total_time: 総所要時間 [秒]（最も遅いカゴ担当の時間）
+        total_energy: 全カゴ合計の消費エネルギー [J]
+        n_dumps: カート戻し回数
+        dump_time_total: カート戻しの総時間 [秒]
+        assignments: shape (N,) 各ボールのカゴ割り当て
+    """
+
+    basket_results: dict[int, RouteResult]
+    total_time: float
+    total_energy: float
+    n_dumps: int
+    dump_time_total: float
+    assignments: NDArray[np.intp]
+
+
+def optimize_multi_basket(
+    ball_positions: NDArray[np.float64],
+    basket_positions: NDArray[np.float64],
+    style: StyleParams,
+    basket_config: BasketConfig | None = None,
+    energy_params: EnergyParams | None = None,
+    use_2opt: bool = True,
+) -> MultiBasketResult:
+    """複数カゴでの経路最適化.
+
+    各ボールを最近傍カゴに割り当て、カゴ別に経路最適化を行う。
+    カゴ容量を超える場合はカートへの戻し時間を加算する。
+
+    Args:
+        ball_positions: shape (N, 2) のボール座標
+        basket_positions: shape (K, 2) のカゴ座標
+        style: 拾い方スタイル
+        basket_config: カゴ構成パラメータ（Noneならデフォルト）
+        energy_params: エネルギーパラメータ
+        use_2opt: 2-opt改善を適用するか
+
+    Returns:
+        MultiBasketResult
+    """
+    if basket_config is None:
+        basket_config = BasketConfig()
+
+    # ボールをカゴに割り当て
+    assignments = assign_balls_to_baskets(ball_positions, basket_positions)
+
+    basket_results: dict[int, RouteResult] = {}
+    total_energy = 0.0
+    max_time = 0.0
+    total_dumps = 0
+    total_dump_time = 0.0
+
+    n_baskets = len(basket_positions)
+    for k in range(n_baskets):
+        mask = assignments == k
+        k_balls = ball_positions[mask]
+
+        if len(k_balls) == 0:
+            # このカゴに割り当てなし
+            basket_results[k] = RouteResult(
+                order=np.array([], dtype=np.intp),
+                total_time=0.0,
+                total_energy=0.0,
+                energy_breakdown={"walk": 0.0, "bend": 0.0, "carry": 0.0},
+                n_trips=0,
+                trip_details=[],
+            )
+            continue
+
+        result = optimize_route(
+            k_balls,
+            basket_positions[k],
+            style,
+            energy_params,
+            use_2opt,
+        )
+
+        # カート戻し回数: カゴ容量を超えた分
+        n_dumps_k = max(0, len(k_balls) // basket_config.basket_capacity - 1)
+        if len(k_balls) > basket_config.basket_capacity:
+            n_dumps_k = (len(k_balls) - 1) // basket_config.basket_capacity
+
+        dump_time_k = n_dumps_k * basket_config.dump_time
+        total_dumps += n_dumps_k
+        total_dump_time += dump_time_k
+
+        # カゴ→カート距離（最後に1回戻す分もある）
+        basket_time = result.total_time + dump_time_k
+        basket_results[k] = result
+
+        total_energy += result.total_energy
+        max_time = max(max_time, basket_time)
+
+    return MultiBasketResult(
+        basket_results=basket_results,
+        total_time=max_time,
+        total_energy=total_energy,
+        n_dumps=total_dumps,
+        dump_time_total=total_dump_time,
+        assignments=assignments,
+    )
